@@ -1,7 +1,6 @@
 package ch.thierry.datanucleus;
 
 import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.CoreMatchers.isA;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.Assert.assertThat;
 import static org.junit.rules.ExpectedException.none;
@@ -14,14 +13,12 @@ import java.util.Map;
 import javax.jdo.PersistenceManager;
 import javax.jdo.PersistenceManagerFactory;
 import javax.jdo.Query;
+import javax.jdo.datastore.JDOConnection;
 
 import org.apache.log4j.Logger;
 import org.datanucleus.api.jdo.JDOPersistenceManagerFactory;
 import org.hsqldb.jdbc.JDBCDriver;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.*;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -30,6 +27,7 @@ import org.junit.runners.JUnit4;
 public class FindPeopleTest {
 
     private PersistenceManagerFactory pmf;
+    private PersistenceManager pm;
 
     @Rule
     public ExpectedException expected = none();
@@ -45,19 +43,25 @@ public class FindPeopleTest {
         pmf.setConnectionUserName("SA");
         pmf.setConnectionPassword("");
 
-        save(new Person(1L, "John"));
-        save(new Person(2L, "Jack"));
-        save(new Person(3L, "Jane"));
+        pm = pmf.getPersistenceManager();
+        pm.currentTransaction().begin();
+
+        pm.makePersistent(new Person(1L, "John"));
+        pm.makePersistent(new Person(2L, "Jack"));
+        pm.makePersistent(new Person(3L, "Jane"));
+
     }
 
     @After
     public void tearDown() {
+        pm.currentTransaction().rollback();
+        pm.close();
         pmf.close();
     }
 
     @Test
     public void findPeopleWithName() {
-        //expected.expectCause(isA(SQLSyntaxErrorException.class));
+        // expected.expectCause(isA(SQLSyntaxErrorException.class));
 
         Collection<Person> johns = find("John");
         assertThat(johns, hasSize(1));
@@ -65,9 +69,15 @@ public class FindPeopleTest {
     }
 
     @Test
+    public void findPeopleWithNullName() {
+        Collection<Person> people = find(null);
+        assertThat(people, hasSize(3));
+    }
+
+    @Test
     public void findPeopleWithNameByJDBC() throws SQLException {
-        PersistenceManager pm = pmf.getPersistenceManager();
-        Connection connection = (Connection) pm.getDataStoreConnection()
+        JDOConnection dataStoreConnection = pm.getDataStoreConnection();
+        Connection connection = (Connection) dataStoreConnection
                 .getNativeConnection();
         PreparedStatement stmt = null;
         try {
@@ -81,6 +91,7 @@ public class FindPeopleTest {
         } finally {
             close(stmt);
             close(connection);
+            dataStoreConnection.close();
         }
     }
 
@@ -106,26 +117,11 @@ public class FindPeopleTest {
         }
     }
 
-    private void save(Person person) {
-        PersistenceManager pm = pmf.getPersistenceManager();
-        try {
-            pm.makePersistent(person);
-        } finally {
-            pm.close();
-        }
-    }
-
     @SuppressWarnings("unchecked")
     private Collection<Person> find(String name) {
-        PersistenceManager pm = pmf.getPersistenceManager();
-        try {
-            Query query = pm.newQuery(Person.class);
-            query.setFilter("pName == null || name == pName");
-            query.declareParameters("java.lang.String pName");
-            return (Collection<Person>) query.execute(name);
-        } finally {
-            pm.close();
-        }
+        Query query = pm.newQuery(Person.class);
+        query.setFilter("pName == null || name == pName");
+        query.declareParameters("java.lang.String pName");
+        return (Collection<Person>) query.execute(name);
     }
-
 }
